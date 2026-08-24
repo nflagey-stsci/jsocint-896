@@ -10,7 +10,7 @@ from astropy.io import fits
 
 from bokeh.plotting import figure, curdoc
 from bokeh.models import (
-    Arrow, VeeHead, ColumnDataSource, Spinner, Div,
+    Arrow, VeeHead, ColumnDataSource, Spinner, Div, Select,
     DataTable, TableColumn, NumberEditor,
     HoverTool, LinearColorMapper, ColorBar,
 )
@@ -68,25 +68,30 @@ for i in range(1, head['NAXIS'] + 1):
     axis = scale[i - 1] * (crval + (index - crpix) * cdelt)
     axes.append(axis)
 xcube, ycube, wcube = axes
+wcube_str = [f'{w:.2f}' for w in wcube]
 
 # TODO: handle possible NaN failure in FFT nicely
-# Resample Throughput map on regular finer grid
-interp = RegularGridInterpolator(
-    (ycube, xcube),   # order must match z dimensions
-    cube[0, :, :],
-    method="linear",
-    bounds_error=False,
-    fill_value=np.nan
-)
-
 # New regular grid
 X_new, Y_new = np.meshgrid(
     np.arange(xcube.min(), xcube.max(), pixel_scale),
     np.arange(ycube.min(), ycube.max(), pixel_scale)
 )
 points = np.column_stack([Y_new.ravel(), X_new.ravel()])
-# Shutter throughput resampled
-shutter_resampled = interp(points).reshape(Y_new.shape)
+# Output resample shutter, at each wavelength
+shutter_resampled = np.empty((len(wcube), *Y_new.shape))
+for i, w in enumerate(wcube):
+
+    # Resample Throughput map on regular finer grid for each wavelength
+    interp = RegularGridInterpolator(
+        (ycube, xcube),   # order must match z dimensions
+        cube[i, :, :],
+        method="linear",
+        bounds_error=False,
+        fill_value=np.nan
+    )
+
+    # Shutter throughput resampled
+    shutter_resampled[i, :, :] = interp(points).reshape(Y_new.shape)
 
 
 # ---- Main Figure and Data Sources -------------------------------------------
@@ -301,7 +306,8 @@ def compute_throughput_map(mosaic_xs, mosaic_ys, kernel, pixel_scale):
     return throughput_map, x_min, y_min, x_max - x_min, y_max - y_min
 
 
-def compute_and_update(slitlet_shutter,
+def compute_and_update(wavelength_index,
+                       slitlet_shutter,
                        mosaic_step_size,
                        mosaic_step_number,
                        dither_xs, dither_ys):
@@ -370,7 +376,8 @@ def compute_and_update(slitlet_shutter,
 
     # Stacked throughput heatmap
     throughput_map, x0, y0, w, h = compute_throughput_map(
-        all_mosaic_xs, all_mosaic_ys, shutter_resampled, pixel_scale)
+        all_mosaic_xs, all_mosaic_ys,
+        shutter_resampled[wavelength_index, :, :], pixel_scale)
     # Push new data into source
     coverage_source.data = dict(
         image=[throughput_map], x=[x0], y=[y0], dw=[w], dh=[h]
@@ -420,6 +427,11 @@ mosaic_step_number_input = Spinner(
     title="Mosaic step number (integer \u2265 1)",
     low=1, step=1, value=5, width=300)
 
+wavelength_select = Select(
+    title="Pathloss wavelength (microns)",
+    value=wcube_str[0],
+    options=wcube_str
+)
 
 # ---- Dither pattern: count + editable table ---------------------------------
 # - dither_pattern_source: FULL table of user-editable X/Y offsets
@@ -484,6 +496,7 @@ def get_active_dither_offsets():
 def update_plot():
     dither_xs, dither_ys = get_active_dither_offsets()
     compute_and_update(
+        wcube_str.index(wavelength_select.value),
         int(slitlet_shutter_input.value),
         float(mosaic_step_size_input.value),
         int(mosaic_step_number_input.value),
@@ -495,7 +508,8 @@ def on_widget_change(attr, old, new):
     update_plot()
 
 
-for widget in (slitlet_shutter_input, mosaic_step_size_input,
+for widget in (wavelength_select,
+               slitlet_shutter_input, mosaic_step_size_input,
                mosaic_step_number_input, n_dither_input):
     widget.on_change('value', on_widget_change)
 
@@ -508,7 +522,8 @@ dither_pattern_source.on_change('data', on_widget_change)
 
 update_plot()
 
-controls = row(slitlet_shutter_input, mosaic_step_size_input,
+controls = row(wavelength_select,
+               slitlet_shutter_input, mosaic_step_size_input,
                mosaic_step_number_input)
 dither_controls = column(n_dither_input, dither_table)
 layout = column(
