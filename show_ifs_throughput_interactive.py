@@ -32,8 +32,8 @@ shutter_y = 0
 # Default "5-point dither" mimicking what DLaw showed in the meeting.
 #    This seeds the editable dither table.
 #    It's no longer used directly in the geometry calculations.
-default_dither_xs = [0, 0.165, 0.165, 0, 0.0825, 0, 0, 0, 0, 0]
-default_dither_ys = [0, 0, 0.425, 0.425, 0.2125, 0, 0, 0, 0, 0]
+default_dither_xs = [0, -0.05, 0.05, 0.1, -0.1, 0, 0, 0, 0, 0]
+default_dither_ys = [0, -0.1325, 0.1325, -0.1767, 0.1767, 0, 0, 0, 0, 0]
 
 
 # ---- Create MSA slitlet throughput from pathloss file -----------------------
@@ -341,9 +341,19 @@ def compute_and_update(wavelength_index,
      """
 
     # Slitlet's shutters positions: given by number of shutter in slitlet
-    slitlet_xs = [shutter_x for _ in range(slitlet_shutter)]
-    slitlet_ys = [shutter_y + i * (shutter_height + shutter_gap)
-                  for i in range(slitlet_shutter)]
+    # - handle odd/even number of shutters
+    odd_shutters = bool(slitlet_shutter % 2)
+    min_shutter = -(slitlet_shutter//2) if odd_shutters else -slitlet_shutter / 2
+    max_shutter = slitlet_shutter//2 + 1 if odd_shutters else slitlet_shutter / 2
+    # - positions of shutters
+    slitlet_xs = [
+        shutter_x
+        for _ in np.arange(min_shutter, max_shutter)
+    ]
+    slitlet_ys = [
+        shutter_y + i * (shutter_height + shutter_gap)
+        for i in np.arange(min_shutter, max_shutter)
+    ]
 
     # All dither positions for the slitlet: given by dither pattern table
     all_dither_xs = [ssx + dx for ssx in slitlet_xs for dx in dither_xs]
@@ -354,18 +364,31 @@ def compute_and_update(wavelength_index,
     ori_dither_ys = [shutter_y + dy for dy in dither_ys]
 
     # All mosaic positions
-    all_mosaic_xs = [i * mosaic_step_size + dx
-                     for i in range(mosaic_step_number)
-                     for dx in all_dither_xs]
-    all_mosaic_ys = [dy
-                     for _ in range(mosaic_step_number)
-                     for dy in all_dither_ys]
+    # - handle odd/even number of steps
+    odd_steps = bool(mosaic_step_number % 2)
+    min_step = -(mosaic_step_number//2) if odd_steps else -mosaic_step_number / 2
+    max_step = mosaic_step_number//2 + 1 if odd_steps else mosaic_step_number / 2
+    # - positions of shutters
+    all_mosaic_xs = [
+        i * mosaic_step_size + dx
+        for i in np.arange(min_step, max_step)
+        for dx in all_dither_xs
+    ]
+    all_mosaic_ys = [
+        dy
+        for _ in np.arange(min_step, max_step)
+        for dy in all_dither_ys
+    ]
 
     # Mosaic positions for first shutter only
-    ori_mosaic_xs = [i * mosaic_step_size + shutter_x
-                     for i in range(mosaic_step_number)]
-    ori_mosaic_ys = [shutter_y
-                     for _ in range(mosaic_step_number)]
+    ori_mosaic_xs = [
+        i * mosaic_step_size + shutter_x
+        for i in np.arange(min_step, max_step)
+    ]
+    ori_mosaic_ys = [
+        shutter_y
+        for _ in np.arange(min_step, max_step)
+    ]
 
     # Push new data into sources (triggers redraw of rectangles and crosses)
     mosaic_source.data = dict(
@@ -422,7 +445,7 @@ slitlet_shutter_input = Spinner(
 
 mosaic_step_size_input = Spinner(
     title="Mosaic step size (positive float, in arcsec)",
-    low=0.01, step=0.01, value=.20, width=300)
+    low=0.01, step=0.01, value=0.20, width=300)
 
 mosaic_step_number_input = Spinner(
     title="Mosaic step number (integer \u2265 1)",
