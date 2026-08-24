@@ -3,7 +3,8 @@
 # X is dispersion direction (along short shutter length)
 # Y is cross-dispersion direction (along slitlet)
 #
-# Run this as a Bokeh SERVER app (not `python show_ifs.py`), e.g.:
+# Create or use a Python environment with the Bokeh package installed.
+# Run this as a Bokeh SERVER app in the Terminal with:
 #   bokeh serve --show show_ifs_throughput_interactive.py
 
 from astropy.io import fits
