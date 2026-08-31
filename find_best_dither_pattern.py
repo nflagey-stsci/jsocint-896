@@ -1,10 +1,4 @@
-# Use bokeh to allow user interactivity
-# All units in arcseconds
-# X is dispersion direction (along short shutter length)
-# Y is cross-dispersion direction (along slitlet)
-#
-# Run this as a Bokeh SERVER app (not `python show_ifs.py`), e.g.:
-#   bokeh serve --show show_ifs_throughput_interactive.py
+# Optimizes dither pattern for NIRSpec IFS mode
 
 from astropy.io import fits
 
@@ -15,7 +9,7 @@ from scipy.optimize import minimize
 from scipy.optimize import differential_evolution
 
 # ---- Fixed shutter geometry -------------------------------------------------
-shutter_width = 0.2
+shutter_width = 0.2  # all sizes in arcsec
 shutter_height = 0.46
 shutter_gap = 0.07
 shutter_x = 0
@@ -27,8 +21,11 @@ slitlet_shutter = 5
 mosaic_step_size = 0.2
 mosaic_step_number = 5
 
+# TODO: limit pixel_scale to non arbitrary small values
+pixel_scale = 0.01  # arcsec/pixel
+
 # Wavelength selection
-wavelength_index = 5
+wavelength_index = [0, 5, 10, 15, 20]
 
 # ---- Create MSA slitlet throughput from pathloss file -----------------------
 
@@ -37,9 +34,6 @@ pathloss_file = 'jwst_nirspec_pathloss_0010.fits'
 srctype = 'PS'
 aperture = 'MOS1x1'
 scale = [0.27, 0.53, 1e6]  # arcsec/shutter, arcsec/shutter, µm/m
-
-# TODO: limit pixel_scale to non arbitrary small values
-pixel_scale = 0.005  # arcsec/pixel
 
 # Read pathloss from calibration reference file.
 with fits.open(pathloss_file) as hdulist:
@@ -297,36 +291,34 @@ def compute_and_update(wavelength_index,
         all_mosaic_xs, all_mosaic_ys,
         shutter_resampled[wavelength_index, :, :], pixel_scale)
 
-    # print(all_mosaic_xs)
-    # print(all_mosaic_ys)
-
     # Standard deviation over core
-    x_from = int(- x0 / pixel_scale)
-    y_from = int(- y0 / pixel_scale)
-    x_to = int((w + x0) / pixel_scale)
-    y_to = int((h + y0) / pixel_scale)
-    med = np.median(throughput_map[y_from:y_to, x_from:x_to])
-    stdev = np.std(throughput_map[y_from:y_to, x_from:x_to])
-    pv = (np.max(throughput_map[y_from:y_to, x_from:x_to])
-          - np.min(throughput_map[y_from:y_to, x_from:x_to]))
+    x_from = int(shutter_width / pixel_scale)
+    y_from = int(shutter_height / pixel_scale)
+    x_to = - x_from
+    y_to = - y_from
+    core_map = throughput_map[y_from:y_to, x_from:x_to]
+    med = np.median(core_map)
+    stdev = np.std(core_map)
+    # pv = (np.max(throughput_map[y_from:y_to, x_from:x_to])
+    #       - np.min(throughput_map[y_from:y_to, x_from:x_to]))
 
     # Median vertical and horizontal profiles
-    med_horizontal_profile = np.median(throughput_map, axis=0)
-    med_vertical_profile = np.median(throughput_map, axis=1)
-    x_med = np.median(med_horizontal_profile[x_from:x_to])
-    y_med = np.median(med_vertical_profile[y_from:y_to])
-    x_stdev = np.std(med_horizontal_profile[x_from:x_to])
-    y_stdev = np.std(med_vertical_profile[y_from:y_to])
-    x_pv = (np.max(med_horizontal_profile[x_from:x_to])
-            - np.min(med_horizontal_profile[x_from:x_to]))
-    y_pv = (np.max(med_vertical_profile[y_from:y_to])
-            - np.min(med_vertical_profile[y_from:y_to]))
+    med_hor_profile = np.median(throughput_map, axis=0)
+    med_ver_profile = np.median(throughput_map, axis=1)
+    x_med = np.median(med_hor_profile[x_from:x_to])
+    y_med = np.median(med_ver_profile[y_from:y_to])
+    x_stdev = np.std(med_hor_profile[x_from:x_to])
+    y_stdev = np.std(med_ver_profile[y_from:y_to])
+    # x_pv = (np.max(med_horizontal_profile[x_from:x_to])
+    #         - np.min(med_horizontal_profile[x_from:x_to]))
+    # y_pv = (np.max(med_vertical_profile[y_from:y_to])
+    #         - np.min(med_vertical_profile[y_from:y_to]))
 
     # Compute ratio metrics
     ratio, x_ratio, y_ratio = stdev / med, x_stdev / x_med, y_stdev / y_med
 
     if return_maps:
-        return (ratio, x_ratio, y_ratio), throughput_map, med_horizontal_profile, med_vertical_profile
+        return (ratio, x_ratio, y_ratio), throughput_map, core_map, med_hor_profile, med_ver_profile
     return ratio, x_ratio, y_ratio
 
 
@@ -339,22 +331,44 @@ def wrapper_function(dither_table):
     dither_xs = [0,] + list(dither_table[:n_dither])
     dither_ys = [0,] + list(dither_table[n_dither:])
 
-    res, x, y = compute_and_update(
-        wavelength_index,
-        slitlet_shutter, mosaic_step_size, mosaic_step_number,
-        dither_xs, dither_ys)
+    if len(wavelength_index) == 1:
+        im, x, y = compute_and_update(
+            wavelength_index,
+            slitlet_shutter, mosaic_step_size, mosaic_step_number,
+            dither_xs, dither_ys)
+    else:
+        im, x, y = 0, 0, 0
+        for i in wavelength_index:
+            im_i, x_i, y_i = compute_and_update(
+                i,
+                slitlet_shutter, mosaic_step_size, mosaic_step_number,
+                dither_xs, dither_ys)
+            im += im_i
+            x += x_i
+            y += y_i
 
+    # Giving some extra weight to the Y profile?
+    res = im
+    print(res)
     return res
 
 
-def save_diagnostic_plots(throughput_map, med_horizontal_profile, med_vertical_profile,
-                           map_filename='best_dither_pattern_map.pdf',
-                           profile_filename='best_dither_pattern.pdf'):
+def save_diagnostic_plots(throughput_map, core_map,
+                          med_horizontal_profile, med_vertical_profile,
+                          map_filename='best_dither_pattern_map.pdf',
+                          core_filename='best_dither_pattern_coremap.pdf',
+                          profile_filename='best_dither_pattern.pdf'):
     # Save plots
     fig, ax = plt.subplots(1, 1, figsize=(10, 5))
     fig.tight_layout(pad=3)
     ax.imshow(throughput_map, cmap='viridis', origin='lower')
     plt.savefig(map_filename, bbox_inches='tight')
+    plt.close(fig)
+
+    fig, ax = plt.subplots(1, 1, figsize=(10, 5))
+    fig.tight_layout(pad=3)
+    ax.imshow(core_map, cmap='viridis', origin='lower')
+    plt.savefig(core_filename, bbox_inches='tight')
     plt.close(fig)
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
@@ -368,13 +382,12 @@ def save_diagnostic_plots(throughput_map, med_horizontal_profile, med_vertical_p
 # ----- Execute code ----------------------------------------------------------
 
 # initial guess as [ x0, x1, x2, ... y0, y1, y2, ... ]
-x0 = [0.1,    0.05,  0.1,   0.05,
-      0.1325, 0.05, 0.265, 0.3975]
+x0 = [0.1,    0.05, 0.01, 0.03, 0.07,
+      0.1325, 0.05, 0.10, 0.05, 0.12]
 
 n_dither = int(len(x0) / 2)
 
-bounds = [(0.001, 0.2)] * n_dither + [(0.001, 0.4)] * n_dither
-print(bounds)
+bounds = [(-0.2, 0.2)] * n_dither + [(-0.4, 0.4)] * n_dither
 
 # result = minimize(wrapper_function, x0,
 #                   bounds=bounds,
@@ -386,14 +399,15 @@ result = differential_evolution(wrapper_function, bounds, x0=x0)
 best_dither_xs = [0,] + list(result.x[:n_dither])
 best_dither_ys = [0,] + list(result.x[n_dither:])
 
-_, throughput_map, med_h, med_v = compute_and_update(
+_, throughput_map, core_map, med_h, med_v = compute_and_update(
     wavelength_index,
     slitlet_shutter, mosaic_step_size, mosaic_step_number,
     best_dither_xs, best_dither_ys, return_maps=True)
 
-save_diagnostic_plots(throughput_map, med_h, med_v)
+save_diagnostic_plots(throughput_map, core_map, med_h, med_v)
 
 
-print("Optimal parameters (X):", [0,] + result.x[:int(len(x0)/2)])
-print("Optimal parameters (Y):", [0,] + result.x[int(len(x0)/2):])
+print("Wavelength:", wcube_str[wavelength_index])
+print("Optimal parameters (X, arcsec):", [0,] + result.x[:int(len(x0)/2)])
+print("Optimal parameters (Y, arcsec):", [0,] + result.x[int(len(x0)/2):])
 print("Minimum value:", result.fun)
