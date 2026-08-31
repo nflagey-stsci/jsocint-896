@@ -12,7 +12,7 @@ from astropy.io import fits
 from bokeh.plotting import figure, curdoc
 from bokeh.models import (
     Arrow, VeeHead, ColumnDataSource, Spinner, Div, Select,
-    DataTable, TableColumn, NumberEditor,
+    DataTable, TableColumn, NumberEditor, Switch,
     HoverTool, LinearColorMapper, ColorBar,
 )
 from bokeh.palettes import Viridis256
@@ -101,6 +101,8 @@ for i, w in enumerate(wcube):
 p = figure(width=800, height=800, match_aspect=True)
 p.xaxis.axis_label = "Arcsecond - dispersed direction"
 p.yaxis.axis_label = "Arcsecond - cross-dispersed direction"
+p.axis.axis_label_text_font_size = "16pt"
+p.axis.major_label_text_font_size = "12pt"
 
 # ColumnDataSources that we need to track
 # - coverage/throughput map
@@ -128,6 +130,8 @@ coverage_renderer = p.image(
 # Add colorbar
 color_bar = ColorBar(color_mapper=coverage_mapper, title="Throughput",
                      label_standoff=18)
+color_bar.major_label_text_font_size = "12pt"
+color_bar.title_text_font_size = "12pt"
 p.add_layout(color_bar, 'right')
 
 # Display throughput where the mouse hovers
@@ -138,16 +142,16 @@ hover = HoverTool(
 p.add_tools(hover)
 
 # Show all shutters outline
-p.rect(source=mosaic_source, x='x', y='y',
-       width=shutter_width, height=shutter_height,
-       color=None, alpha=0.15, line_color='black')
+aper_renderer = p.rect(source=mosaic_source, x='x', y='y',
+                       width=shutter_width, height=shutter_height,
+                       color=None, alpha=0.25, line_color='black')
 # Show dither pattern centers for first shutter only
-p.scatter(source=dither_plot_source, x='x', y='y',
-          marker='cross', color='black', size=10)
+dith_renderer = p.scatter(source=dither_plot_source, x='x', y='y',
+                          marker='x', color='black', size=10)
 # Show first slitlets outline darker
-p.rect(source=slitlet_source, x='x', y='y',
-       width=shutter_width, height=shutter_height,
-       fill_color=None, line_color='black')
+slitlet_renderer = p.rect(source=slitlet_source, x='x', y='y',
+                          width=shutter_width, height=shutter_height,
+                          fill_color=None, line_color='black')
 # Show arrowheads for the side-steps
 vh = VeeHead(size=15, fill_color='black')
 arrow_renderers = []  # track arrows so we can remove/replace them
@@ -308,10 +312,14 @@ def compute_throughput_map(mosaic_xs, mosaic_ys, kernel, pixel_scale):
 
 
 def compute_and_update(wavelength_index,
+                       throughput_switch,
                        slitlet_shutter,
                        mosaic_step_size,
                        mosaic_step_number,
-                       dither_xs, dither_ys):
+                       dither_xs, dither_ys,
+                       rect_renderer,
+                       slitlet_renderer,
+                       dith_renderer):
     """Recompute the full shutter/dither/mosaic geometry and push every
      derived quantity into the plot's data sources and annotations.
 
@@ -340,6 +348,8 @@ def compute_and_update(wavelength_index,
      None
      """
 
+    # TODO: decide if number of shutters will always be odd
+
     # Slitlet's shutters positions: given by number of shutter in slitlet
     # - handle odd/even number of shutters
     odd_shutters = bool(slitlet_shutter % 2)
@@ -364,10 +374,9 @@ def compute_and_update(wavelength_index,
     ori_dither_ys = [shutter_y + dy for dy in dither_ys]
 
     # All mosaic positions
-    # - handle odd/even number of steps
-    odd_steps = bool(mosaic_step_number % 2)
-    min_step = -(mosaic_step_number//2) if odd_steps else -mosaic_step_number / 2
-    max_step = mosaic_step_number//2 + 1 if odd_steps else mosaic_step_number / 2
+    # - ensure that mosaic is centered
+    min_step = -(mosaic_step_number - 1) / 2
+    max_step = (mosaic_step_number - 1) / 2 + 1
     # - positions of shutters
     all_mosaic_xs = [
         i * mosaic_step_size + dx
@@ -402,12 +411,12 @@ def compute_and_update(wavelength_index,
     throughput_map, x0, y0, w, h = compute_throughput_map(
         all_mosaic_xs, all_mosaic_ys,
         shutter_resampled[wavelength_index, :, :], pixel_scale)
+    # Save peak throughput
+    coverage_mapper.high = max(float(throughput_map.max()), 1e-6)
     # Push new data into source
     coverage_source.data = dict(
         image=[throughput_map], x=[x0], y=[y0], dw=[w], dh=[h]
     )
-    # Save peak throughput
-    coverage_mapper.high = max(float(throughput_map.max()), 1e-6)
 
     # Rebuild the mosaic arrows (their count depends on mosaic_step_number)
     if arrow_renderers:
@@ -419,6 +428,16 @@ def compute_and_update(wavelength_index,
                       end=vh, line_color='black')
         p.add_layout(arrow)
         arrow_renderers.append(arrow)
+
+    # Turn things ON/OFF
+    coverage_renderer.visible = throughput_switch
+    color_bar.visible = throughput_switch
+    rect_renderer.glyph.line_alpha = 0.25 if throughput_switch else 0.5
+    dith_renderer.glyph.line_color = 'black' if throughput_switch else 'red'
+    slitlet_renderer.glyph.line_color = 'black' if throughput_switch else 'red'
+    slitlet_renderer.glyph.line_width = 1 if throughput_switch else 2
+    for arrow in arrow_renderers:
+        arrow.visible = throughput_switch
 
     # Histogram of values in heatmap
     throughput_hist = np.histogram(throughput_map.ravel(), bins=30)
@@ -455,6 +474,10 @@ wavelength_select = Select(
     title="Pathloss wavelength (microns)",
     value=wcube_str[0],
     options=wcube_str
+)
+
+throughput_switch = Switch(
+    label="Showing Throughput", active=True
 )
 
 # ---- Dither pattern: count + editable table ---------------------------------
@@ -521,10 +544,12 @@ def update_plot():
     dither_xs, dither_ys = get_active_dither_offsets()
     compute_and_update(
         wcube_str.index(wavelength_select.value),
+        throughput_switch.active,
         int(slitlet_shutter_input.value),
         float(mosaic_step_size_input.value),
         int(mosaic_step_number_input.value),
         dither_xs, dither_ys,
+        aper_renderer, slitlet_renderer, dith_renderer
     )
 
 
@@ -532,6 +557,8 @@ def on_widget_change(attr, old, new):
     update_plot()
 
 
+for widget in (throughput_switch,):
+    widget.on_change('active', on_widget_change)
 for widget in (wavelength_select,
                slitlet_shutter_input, mosaic_step_size_input,
                mosaic_step_number_input, n_dither_input):
@@ -546,9 +573,10 @@ dither_pattern_source.on_change('data', on_widget_change)
 
 update_plot()
 
-controls = row(wavelength_select,
-               slitlet_shutter_input, mosaic_step_size_input,
-               mosaic_step_number_input)
+controls = column(
+    row(slitlet_shutter_input, mosaic_step_size_input, mosaic_step_number_input),
+    row(throughput_switch, wavelength_select)
+)
 dither_controls = column(n_dither_input, dither_table)
 layout = column(
     Div(text="<b>NIRSpec-IFS shutter/dither/mosaic pattern</b>"),
