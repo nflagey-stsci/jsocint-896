@@ -32,8 +32,11 @@ shutter_y = 0
 # Default "5-point dither" mimicking what DLaw showed in the meeting.
 #    This seeds the editable dither table.
 #    It's no longer used directly in the geometry calculations.
-default_dither_xs = [0, -0.05, 0.05, 0.1, -0.1, 0, 0, 0, 0, 0]
-default_dither_ys = [0, -0.1325, 0.1325, -0.1767, 0.1767, 0, 0, 0, 0, 0]
+default_dither_xs = [0, 0.027, -0.052, 0.078, 0.077, -0.052, 0.013, 0, 0, 0]
+default_dither_ys = [0, -0.226, -0.149, -0.075, 0.077, 0.146, 0.231, 0, 0, 0]
+
+# TODO: limit pixel_scale to non arbitrary small values
+pixel_scale = 0.01  # arcsec/pixel
 
 
 # ---- Create MSA slitlet throughput from pathloss file -----------------------
@@ -43,9 +46,6 @@ pathloss_file = 'jwst_nirspec_pathloss_0010.fits'
 srctype = 'PS'
 aperture = 'MOS1x1'
 scale = [0.27, 0.53, 1e6]  # arcsec/shutter, arcsec/shutter, µm/m
-
-# TODO: limit pixel_scale to non arbitrary small values
-pixel_scale = 0.005  # arcsec/pixel
 
 # Read pathloss from calibration reference file.
 with fits.open(pathloss_file) as hdulist:
@@ -489,7 +489,7 @@ dither_pattern_source = ColumnDataSource(
 
 n_dither_input = Spinner(
     title="Number of dither points to use (integer \u2265 1)",
-    low=1, step=1, value=5, width=300)
+    low=1, step=1, value=7, width=300)
 
 dither_columns = [
     TableColumn(field='x', title='X offset (arcsec)',
