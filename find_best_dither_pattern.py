@@ -7,6 +7,7 @@ import numpy as np
 from scipy.interpolate import RegularGridInterpolator
 from scipy.optimize import minimize
 from scipy.optimize import differential_evolution
+import time
 
 # ---- Fixed shutter geometry -------------------------------------------------
 shutter_width = 0.2  # all sizes in arcsec
@@ -25,7 +26,7 @@ mosaic_step_number = 5
 pixel_scale = 0.01  # arcsec/pixel
 
 # Wavelength selection
-wavelength_index = [0, 5, 10, 15, 20]
+wavelength_index = np.arange(21)
 
 # ---- Create MSA slitlet throughput from pathloss file -----------------------
 
@@ -317,9 +318,16 @@ def compute_and_update(wavelength_index,
     # Compute ratio metrics
     ratio, x_ratio, y_ratio = stdev / med, x_stdev / x_med, y_stdev / y_med
 
+    # Compute all the distances between dither positions - take (1 / min) for each
+    interdist = np.ones((len(dither_xs), len(dither_ys)))
+    for m, (x1, y1) in enumerate(zip(dither_xs, dither_ys)):
+        for n, (x2, y2) in enumerate(zip(dither_xs, dither_ys)):
+            if m > n:
+                interdist[m, n] = np.sqrt((x1-x2)**2 + (y1-y2)**2)
+
     if return_maps:
-        return (ratio, x_ratio, y_ratio), throughput_map, core_map, med_hor_profile, med_ver_profile
-    return ratio, x_ratio, y_ratio
+        return (ratio, x_ratio, y_ratio, interdist), throughput_map, core_map, med_hor_profile, med_ver_profile
+    return ratio, x_ratio, y_ratio, interdist
 
 
 def wrapper_function(dither_table):
@@ -331,33 +339,36 @@ def wrapper_function(dither_table):
     dither_xs = [0,] + list(dither_table[:n_dither])
     dither_ys = [0,] + list(dither_table[n_dither:])
 
-    if len(wavelength_index) == 1:
-        im, x, y = compute_and_update(
-            wavelength_index,
+    # Sum over all wavelengths passed to optimizer
+    im, x, y = 0, 0, 0
+    for i in wavelength_index:
+        im_i, x_i, y_i, d_i = compute_and_update(
+            i,
             slitlet_shutter, mosaic_step_size, mosaic_step_number,
             dither_xs, dither_ys)
-    else:
-        im, x, y = 0, 0, 0
-        for i in wavelength_index:
-            im_i, x_i, y_i = compute_and_update(
-                i,
-                slitlet_shutter, mosaic_step_size, mosaic_step_number,
-                dither_xs, dither_ys)
-            im += im_i
-            x += x_i
-            y += y_i
+        im += im_i
+        x += x_i
+        y += y_i
 
-    # Giving some extra weight to the Y profile?
-    res = im
-    print(res)
+    # Decide to use the distances between dither or not?
+    dist_metric = np.min(d_i)  # using the single minimum distance between two
+    dist_metric = 1./dist_metric  # we want that to be large, not small
+
+    # Choose metric to use
+    res = im * dist_metric
+    print(f'{res} with T = {im} and D = {1/dist_metric}')
     return res
 
 
-def save_diagnostic_plots(throughput_map, core_map,
+def save_diagnostic_plots(dxs, dys,
+                          throughput_map, core_map,
                           med_horizontal_profile, med_vertical_profile,
-                          map_filename='best_dither_pattern_map.pdf',
-                          core_filename='best_dither_pattern_coremap.pdf',
-                          profile_filename='best_dither_pattern.pdf'):
+                          wave=''):
+    # Filenames
+    map_filename = f'best_dither_pattern_map{wave}.pdf'
+    core_filename = f'best_dither_pattern_coremap{wave}.pdf'
+    profile_filename = f'best_dither_pattern{wave}.pdf'
+
     # Save plots
     fig, ax = plt.subplots(1, 1, figsize=(10, 5))
     fig.tight_layout(pad=3)
@@ -378,36 +389,66 @@ def save_diagnostic_plots(throughput_map, core_map,
     plt.savefig(profile_filename, bbox_inches='tight')
     plt.close(fig)
 
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.hlines([-0.5, 0.5], -0.5, 0.5, alpha=0.25, color='black')
+    ax.vlines([-0.5, 0.5], -0.5, 0.5, alpha=0.25, color='black')
+    ax.set_xlabel("Sub-pixel X position", fontsize=14)
+    ax.set_ylabel("Sub-pixel Y position", fontsize=14)
+    # We want to plot the centers
+    xc, yc = [], []
+    for x, y in zip(dxs, dys):
+        xx = (x % 0.1) / 0.1
+        xc.append(xx - 1 if xx > 0.5 else xx)
+        yy = (y % 0.1) / 0.1
+        yc.append(yy - 1 if yy > 0.5 else yy)
+    ax.plot(xc, yc, 'kx', label='Dither centers')
+    ax.axis('equal')
+    ax.legend()
+    ax.set_xlim(-0.5, 0.5)
+    ax.set_ylim(-0.5, 0.5)
+    plt.savefig(f'subpixel_{len(dxs):.0f}dither.pdf')
+    plt.close(fig)
+
 
 # ----- Execute code ----------------------------------------------------------
 
-# initial guess as [ x0, x1, x2, ... y0, y1, y2, ... ]
-x0 = [0.1,    0.05, 0.01, 0.03, 0.07,
-      0.1325, 0.05, 0.10, 0.05, 0.12]
+def main():
+    # initial guess as [ x0, x1, x2, ... y0, y1, y2, ... ]
+    x0 = [-0.03, -0.07, 0.03,  0.07, 0.1, -0.1,
+           0.11, -0.11, 0.21, -0.12, 0.05, -0.05]
 
-n_dither = int(len(x0) / 2)
+    # Boundaries
+    n_dither = int(len(x0) / 2)
+    bounds = [(-0.135, 0.135)] * n_dither + [(-0.265, 0.265)] * n_dither
 
-bounds = [(-0.2, 0.2)] * n_dither + [(-0.4, 0.4)] * n_dither
+    # Run minimizer
+    result = differential_evolution(wrapper_function, bounds, x0=x0, workers=4)
 
-# result = minimize(wrapper_function, x0,
-#                   bounds=bounds,
-#                   method='L-BFGS-B')
-result = differential_evolution(wrapper_function, bounds, x0=x0)
+    # Save results into plots
+    best_dither_xs = [0,] + list(result.x[:n_dither])
+    best_dither_ys = [0,] + list(result.x[n_dither:])
+    for i in wavelength_index:
+        _, throughput_map, core_map, med_h, med_v = compute_and_update(
+            i,
+            slitlet_shutter, mosaic_step_size, mosaic_step_number,
+            best_dither_xs, best_dither_ys, return_maps=True)
+        save_diagnostic_plots(best_dither_xs, best_dither_ys,
+                              throughput_map, core_map, med_h, med_v,
+                              wcube_str[i])
+
+    # Sort in ascending Y offset
+    x_offsets = np.array(result.x[:int(len(x0) / 2)])
+    y_offsets = np.array(result.x[int(len(x0)/2):])
+    x_offsets = x_offsets[np.argsort(y_offsets)]
+    y_offsets = np.sort(y_offsets)
+
+    print("Wavelength:", [wcube_str[i] for i in wavelength_index])
+    print("Optimal parameters (X, arcsec):", ', '.join([f'{_:.3f}' for _ in x_offsets]))
+    print("Optimal parameters (Y, arcsec):", ', '.join([f'{_:.3f}' for _ in y_offsets]))
+    print("Minimum value:", result.fun)
 
 
-# Save results into plots
-best_dither_xs = [0,] + list(result.x[:n_dither])
-best_dither_ys = [0,] + list(result.x[n_dither:])
-
-_, throughput_map, core_map, med_h, med_v = compute_and_update(
-    wavelength_index,
-    slitlet_shutter, mosaic_step_size, mosaic_step_number,
-    best_dither_xs, best_dither_ys, return_maps=True)
-
-save_diagnostic_plots(throughput_map, core_map, med_h, med_v)
-
-
-print("Wavelength:", wcube_str[wavelength_index])
-print("Optimal parameters (X, arcsec):", [0,] + result.x[:int(len(x0)/2)])
-print("Optimal parameters (Y, arcsec):", [0,] + result.x[int(len(x0)/2):])
-print("Minimum value:", result.fun)
+if __name__ == "__main__":
+    from multiprocessing import freeze_support
+    freeze_support()
+    main()
