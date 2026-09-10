@@ -365,9 +365,9 @@ def save_diagnostic_plots(dxs, dys,
                           med_horizontal_profile, med_vertical_profile,
                           wave=''):
     # Filenames
-    map_filename = f'best_dither_pattern_map{wave}.pdf'
-    core_filename = f'best_dither_pattern_coremap{wave}.pdf'
-    profile_filename = f'best_dither_pattern{wave}.pdf'
+    map_filename = f'best_dither_pattern_map{wave}.png'
+    core_filename = f'best_dither_pattern_coremap{wave}.png'
+    profile_filename = f'best_dither_pattern{wave}.png'
 
     # Save plots
     fig, ax = plt.subplots(1, 1, figsize=(10, 5))
@@ -406,7 +406,7 @@ def save_diagnostic_plots(dxs, dys,
     ax.legend()
     ax.set_xlim(-0.5, 0.5)
     ax.set_ylim(-0.5, 0.5)
-    plt.savefig(f'subpixel_{len(dxs):.0f}dither.pdf')
+    plt.savefig(f'subpixel_{len(dxs):.0f}dither.png', bbox_inches='tight')
     plt.close(fig)
 
 
