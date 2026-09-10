@@ -58,7 +58,7 @@ ax.set_title("X vs Y colored by wavelength")
 sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
 sm.set_array([])
 plt.colorbar(sm, ax=ax, label="Wavelength")
-plt.savefig('monochromatic_colored_offsets.pdf')
+plt.savefig('monochromatic_colored_offsets.png', bbox_inches='tight')
 plt.show()
 
 
@@ -72,7 +72,7 @@ ax.scatter(xx, yy, alpha=0.3, s=50)
 ax.set_xlabel("X offsets")
 ax.set_ylabel("Y offsets")
 ax.set_title("X vs Y, both sorted")
-plt.savefig('monochromatic_offsets.pdf')
+plt.savefig('monochromatic_offsets.png', bbox_inches='tight')
 plt.show()
 # print stats for each dither position
 for i in range(len(x0[0])):
@@ -88,13 +88,14 @@ fig, ax = plt.subplots()
 ax.hist(xx, bins=30)
 ax.set_ylabel("X offsets")
 ax.set_title("X distribution")
-plt.savefig('x_histogram.pdf')
+plt.savefig('x_histogram.png', bbox_inches='tight')
 plt.show()
 fig, ax = plt.subplots()
 ax.plot(xx, 'C0o', alpha=0.3)
 ax.set_ylabel("X offsets")
 ax.set_title("X distribution")
-plt.savefig('x_offsets.pdf')
+plt.savefig('x_offsets.png', bbox_inches='tight')
+plt.show()
 plt.show()
 
 
@@ -111,10 +112,6 @@ m = []
 
 # Show subpixel maps
 
-# 6-dither pattern (polychromatic)
-x = [0, 0.075, -0.062, -0.062, 0.067, 0.009]
-y = [0, -0.264, -0.176, 0.087, 0.089, 0.178]
-
 # 8-dither pattern (polychromatic)
 x = [0, 0.029, 0.064, -0.070, -0.070, -0.039, -0.003, 0.070]
 y = [0, -0.260, -0.197, -0.129, -0.063, 0.069, 0.134, 0.200]
@@ -124,26 +121,29 @@ y = [0, -0.231, -0.180, -0.117, -0.060, 0.059, 0.117, 0.178, 0.231]
 # 10-dither pattern (polychromatic)
 x = [0, 0.091, -0.041, 0.042, -0.067, 0.073, -0.008, 0.013, -0.060, 0.034]
 y = [0, -0.238, -0.228, -0.148, -0.116, -0.071, 0.059, 0.109, 0.162, 0.219]
+# 6-dither pattern (polychromatic)
+x = [0, 0.075, -0.062, -0.062, 0.067, 0.009]
+y = [0, -0.264, -0.176, 0.087, 0.089, 0.178]
 
-# 5-dither pattern (poly * distances)
-x = [0, 0.064, -0.068, 0.072, -0.068]
-y = [0, -0.218, -0.107, 0.104, 0.213]
-# 5-dither pattern (polychromatic)
-x = [0, 0.030, -0.039, -0.069, 0.070]
-y = [0, -0.213, -0.105, 0.107, 0.214]
-
-# 7-dither pattern (polychromatic)
-x = [0, 0.051, -0.014, -0.078, -0.027, 0.051, -0.079]
-y = [0, -0.227, -0.152, -0.077, 0.075, 0.152, 0.227]
-# 7-dither pattern (poly * distances)
-x = [0, 0.134, -0.129, 0.135, -0.135, -0.128, 0.135]
-y = [0, -0.265, -0.263, -0.000, 0.000, 0.264, 0.265]
 # 7-dither pattern (poly * sqrt(distances))
 x = [0, -0.110, 0.029, -0.110, -0.049, 0.024, -0.041]
 y = [0, -0.222, -0.143, -0.068, 0.083, 0.157, 0.238]
 # 7-dither pattern (poly * min(distances))
 x = [0, 0.027, -0.052, 0.078, 0.077, -0.052, 0.013]
 y = [0, -0.226, -0.149, -0.075, 0.077, 0.146, 0.231]
+# 7-dither pattern (poly * distances)
+x = [0, 0.134, -0.129, 0.135, -0.135, -0.128, 0.135]
+y = [0, -0.265, -0.263, -0.000, 0.000, 0.264, 0.265]
+# 7-dither pattern (polychromatic)
+x = [0, 0.051, -0.014, -0.078, -0.027, 0.051, -0.079]
+y = [0, -0.227, -0.152, -0.077, 0.075, 0.152, 0.227]
+
+# 5-dither pattern (polychromatic)
+x = [0, 0.030, -0.039, -0.069, 0.070]
+y = [0, -0.213, -0.105, 0.107, 0.214]
+# 5-dither pattern (poly * distances)
+x = [0, 0.064, -0.068, 0.072, -0.068]
+y = [0, -0.218, -0.107, 0.104, 0.213]
 
 
 fig, ax = plt.subplots(figsize=(8, 8))
@@ -163,7 +163,7 @@ for i, j in zip(x, y):
 ax.axis('equal')
 ax.set_xlim(-.25, 1.25)
 ax.set_ylim(-.25, 1.25)
-plt.savefig(f'subpixelcov_{len(x):.0f}dither.pdf')
+plt.savefig(f'subpixelcov_{len(x):.0f}dither.png', bbox_inches='tight')
 plt.show()
 
 fig, ax = plt.subplots(figsize=(8, 8))
@@ -185,7 +185,7 @@ ax.axis('equal')
 ax.legend()
 ax.set_xlim(-0.5, 0.5)
 ax.set_ylim(-0.5, 0.5)
-plt.savefig(f'subpixel_{len(x):.0f}dither.pdf')
+plt.savefig(f'subpixel_{len(x):.0f}dither.png')
 plt.show()
 
 
